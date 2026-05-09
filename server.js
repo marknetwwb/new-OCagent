@@ -8,10 +8,6 @@ app.use(express.json());
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-// Openclaw API Endpoint
-const OPENCLAW_API = process.env.OPENCLAW_API; 
-// 例如: https://your-openclaw-service.up.railway.app/api/chat
-
 // Telegram Webhook Handler
 app.post("/webhook", async (req, res) => {
   const message = req.body.message;
@@ -25,24 +21,24 @@ app.post("/webhook", async (req, res) => {
 
   try {
     // 呼叫 OpenRouter API（GLM-4-Air）
-const response = await axios.post(
-  "https://openrouter.ai/api/v1/chat/completions",
-  {
-    model: "glm-4-air",
-    messages: [
-      { role: "user", content: userText }
-    ]
-  },
-  {
-    headers: {
-      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json"
-    }
-  }
-);
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "glm-4-air",
+        messages: [
+          { role: "user", content: userText }
+        ]
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-
-    const reply = response.data?.reply ?? "Openclaw 沒有回應";
+    // 正確取得 LLM 回覆
+    const reply = response.data.choices[0].message.content;
 
     // 回覆 Telegram
     await axios.post(`${TELEGRAM_API}/sendMessage`, {
@@ -53,12 +49,18 @@ const response = await axios.post(
   } catch (err) {
     console.error("Error:", err.message);
 
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: "抱歉，我無法處理你的訊息。"
-    });
+    // 即使錯誤，也要回覆 Telegram，避免 webhook 卡住
+    try {
+      await axios.post(`${TELEGRAM_API}/sendMessage`, {
+        chat_id: chatId,
+        text: "抱歉，我無法處理你的訊息。"
+      });
+    } catch (e) {
+      console.error("Telegram 回覆失敗:", e.message);
+    }
   }
 
+  // **最重要：一定要回應 Telegram**
   res.sendStatus(200);
 });
 
