@@ -24,12 +24,23 @@ app.post("/webhook", async (req, res) => {
   const userText = message.text;
 
   try {
-    // 呼叫 Openclaw API
-    const response = await axios.post(OPENCLAW_API, {
-      messages: [
-        { role: "user", content: userText }
-      ]
-    });
+    // 呼叫 OpenRouter API（GLM-4-Air）
+const response = await axios.post(
+  "https://openrouter.ai/api/v1/chat/completions",
+  {
+    model: "glm-4-air",
+    messages: [
+      { role: "user", content: userText }
+    ]
+  },
+  {
+    headers: {
+      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json"
+    }
+  }
+);
+
 
     const reply = response.data?.reply ?? "Openclaw 沒有回應";
 
