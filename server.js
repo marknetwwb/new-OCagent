@@ -1,14 +1,3 @@
-import express from "express";
-import axios from "axios";
-
-const app = express();
-app.use(express.json());
-
-// Telegram Bot Token
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
-
-// Telegram Webhook Handler
 app.post("/webhook", async (req, res) => {
   const message = req.body.message;
 
@@ -19,14 +8,21 @@ app.post("/webhook", async (req, res) => {
   const chatId = message.chat.id;
   const userText = message.text;
 
+  // 讀取記憶
+  const history = memory[chatId] || [];
+
+  // 組合 messages（帶記憶）
+  const messages = [
+    ...history,
+    { role: "user", content: userText }
+  ];
+
   try {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
         model: "z-ai/glm-4.5-air:free",
-        messages: [
-          { role: "user", content: userText }
-        ]
+        messages
       },
       {
         headers: {
@@ -36,8 +32,11 @@ app.post("/webhook", async (req, res) => {
       }
     );
 
-    // ⭐ 正確取得 LLM 回覆
     const reply = response.data.choices[0].message.content;
+
+    // 儲存記憶
+    addMessage(chatId, "user", userText);
+    addMessage(chatId, "assistant", reply);
 
     await axios.post(`${TELEGRAM_API}/sendMessage`, {
       chat_id: chatId,
@@ -47,7 +46,6 @@ app.post("/webhook", async (req, res) => {
   } catch (err) {
     console.error("LLM Error:", err.response?.data || err.message);
 
-    // 即使錯誤，也要回覆 Telegram，避免 webhook 卡住
     try {
       await axios.post(`${TELEGRAM_API}/sendMessage`, {
         chat_id: chatId,
@@ -58,13 +56,5 @@ app.post("/webhook", async (req, res) => {
     }
   }
 
-  // ⭐ 最重要：一定要回應 Telegram
   res.sendStatus(200);
-});
-
-
-// Railway 會注入 PORT
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Bot server running on port", PORT);
 });
