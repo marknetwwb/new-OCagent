@@ -75,13 +75,6 @@ async function plannerAgent(userText) {
 使用者需求：${userText}
 `;
 
-//THINKING react
-  // 顯示「正在思考」
-await axios.post(`${TELEGRAM_API}/sendChatAction`, {
-  chat_id: chatId,
-  action: "typing"
-});
-  
   const response = await axios.post(
     "https://openrouter.ai/api/v1/chat/completions",
     {
@@ -262,7 +255,7 @@ app.post("/webhook", async (req, res) => {
   if (!message.text) return res.sendStatus(200);
   const userText = message.text;
 
-  // ====== 方案 B：列出 /data + /data/files ======
+  // ====== /files ======
   if (userText === "/files") {
     try {
       const rootFiles = fs
@@ -295,69 +288,63 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // ====== 其他指令 ======
+  // ====== /task ======
   if (userText.startsWith("/task ")) {
     addTask(chatId, userText.replace("/task ", ""));
     return res.sendStatus(200);
   }
 
+  // ====== /open filename ======
+  if (userText.startsWith("/open ")) {
+    const filename = userText.replace("/open ", "").trim();
 
-  //Open filename command
-  // 讀取檔案內容（支援 /data 舊檔案 + /data/files 新檔案）
-if (userText.startsWith("/open ")) {
-  const filename = userText.replace("/open ", "").trim();
+    try {
+      let fileBuf = null;
 
-  try {
-    let fileBuf = null;
+      const fileInFiles = path.join("/data/files", filename);
+      if (fs.existsSync(fileInFiles)) {
+        fileBuf = fs.readFileSync(fileInFiles, "utf8");
+      }
 
-    // 先找 /data/files
-    const fileInFiles = path.join("/data/files", filename);
-    if (fs.existsSync(fileInFiles)) {
-      fileBuf = fs.readFileSync(fileInFiles, "utf8");
-    }
+      const fileInRoot = path.join("/data", filename);
+      if (!fileBuf && fs.existsSync(fileInRoot)) {
+        fileBuf = fs.readFileSync(fileInRoot, "utf8");
+      }
 
-    // 再找 /data 根目錄
-    const fileInRoot = path.join("/data", filename);
-    if (!fileBuf && fs.existsSync(fileInRoot)) {
-      fileBuf = fs.readFileSync(fileInRoot, "utf8");
-    }
+      if (!fileBuf) {
+        await axios.post(`${TELEGRAM_API}/sendMessage`, {
+          chat_id: chatId,
+          text: `找不到檔案：${filename}`
+        });
+        return res.sendStatus(200);
+      }
 
-    if (!fileBuf) {
+      const MAX_LEN = 3800;
+      let text = fileBuf.toString();
+
+      if (text.length > MAX_LEN) {
+        text = text.slice(0, MAX_LEN) + "\n\n（內容過長，已截斷）";
+      }
+
       await axios.post(`${TELEGRAM_API}/sendMessage`, {
         chat_id: chatId,
-        text: `找不到檔案：${filename}`
+        text: `📄 *${filename}*\n\n${text}`,
+        parse_mode: "Markdown"
       });
-      return res.sendStatus(200);
+
+    } catch (err) {
+      console.error("OPEN FILE ERROR:", err.message);
+
+      await axios.post(`${TELEGRAM_API}/sendMessage`, {
+        chat_id: chatId,
+        text: "讀取檔案時發生錯誤。"
+      });
     }
 
-    // Telegram 訊息長度限制：4096 字
-    const MAX_LEN = 3800;
-    let text = fileBuf.toString();
-
-    if (text.length > MAX_LEN) {
-      text = text.slice(0, MAX_LEN) + "\n\n（內容過長，已截斷）";
-    }
-
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: `📄 *${filename}*\n\n${text}`,
-      parse_mode: "Markdown"
-    });
-
-  } catch (err) {
-    console.error("OPEN FILE ERROR:", err.message);
-
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: "讀取檔案時發生錯誤。"
-    });
+    return res.sendStatus(200);
   }
 
-  return res.sendStatus(200);
-}
-
-  
-
+  // ====== /tasks ======
   if (userText === "/tasks") {
     const list = listTasks(chatId)
       .map(t => `${t.done ? "✔" : "⬜"} ${t.text}`)
@@ -371,21 +358,25 @@ if (userText.startsWith("/open ")) {
     return res.sendStatus(200);
   }
 
+  // ====== /note ======
   if (userText.startsWith("/note ")) {
     addNote(chatId, userText.replace("/note ", ""));
     return res.sendStatus(200);
   }
 
+  // ====== /remember ======
   if (userText.startsWith("/remember ")) {
     addVector(chatId, userText.replace("/remember ", ""));
     return res.sendStatus(200);
   }
 
+  // ====== /autotask ======
   if (userText === "/autotask") {
     await runAutoTasks(chatId);
     return res.sendStatus(200);
   }
 
+  // ====== /plan ======
   if (userText.startsWith("/plan ")) {
     const plan = await plannerAgent(userText.replace("/plan ", ""));
     const result = await executorAgent(plan.steps);
@@ -398,66 +389,39 @@ if (userText.startsWith("/open ")) {
     return res.sendStatus(200);
   }
 
- // ====== 一般聊天 ======
-const history = memory[chatId] || [];
-const messages = [...history, { role: "user", content: userText }];
+  // ====== 一般聊天（含 ChatGPT-style typing loop） ======
+  const history = memory[chatId] || [];
+  const messages = [...history, { role: "user", content: userText }];
 
-try {
-  // 啟動 ChatGPT-style typing loop
-  let typing = true;
+  try {
+    let typing = true;
 
-  const typingLoop = setInterval(() => {
-    if (!typing) return;
-    axios.post(`${TELEGRAM_API}/sendChatAction`, {
-      chat_id: chatId,
-      action: "typing"
-    }).catch(() => {});
-  }, 1000); // 每秒送一次 typing
+    const typingLoop = setInterval(() => {
+      if (!typing) return;
+      axios.post(`${TELEGRAM_API}/sendChatAction`, {
+        chat_id: chatId,
+        action: "typing"
+      }).catch(() => {});
+    }, 1000);
 
-  // ====== LLM 呼叫 ======
-  const response = await axios.post(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      model: "z-ai/glm-4.5-air:free",
-      messages
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_KEY}`,
-        "Content-Type": "application/json"
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "z-ai/glm-4.5-air:free",
+        messages
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          "Content-Type": "application/json"
+        }
       }
-    }
-  );
+    );
 
-  // 停止 typing loop
-  typing = false;
-  clearInterval(typingLoop);
+    typing = false;
+    clearInterval(typingLoop);
 
-  const reply = response.data.choices[0].message.content;
+    const reply = response.data.choices[0].message.content;
 
-  addMessage(chatId, "user", userText);
-  addMessage(chatId, "assistant", reply);
-
-  await axios.post(`${TELEGRAM_API}/sendMessage`, {
-    chat_id: chatId,
-    text: reply
-  });
-
-} catch (err) {
-  typing = false;
-  console.error("LLM Error:", err.response?.data || err.message);
-
-  await axios.post(`${TELEGRAM_API}/sendMessage`, {
-    chat_id: chatId,
-    text: "抱歉，我無法處理你的訊息。"
-  });
-}
-
-return res.sendStatus(200);
-
-
-// ========= 12. 啟動伺服器 =========
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Bot server running on port", PORT);
-});
+    addMessage(chatId, "user", userText);
+    addMessage(chatId, "assistant",
