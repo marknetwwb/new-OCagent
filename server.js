@@ -424,7 +424,7 @@ app.post("/webhook", async (req, res) => {
     const reply = response.data.choices[0].message.content;
 
     addMessage(chatId, "user", userText);
-        addMessage(chatId, "assistant", reply);
+            addMessage(chatId, "assistant", reply);
 
     await axios.post(`${TELEGRAM_API}/sendMessage`, {
       chat_id: chatId,
@@ -442,7 +442,9 @@ app.post("/webhook", async (req, res) => {
   }
 
   return res.sendStatus(200);
-});  // ← 關閉 webhook handler
+});  // ← 正確關閉 webhook
+
+
 
 // ========= 12. 啟動伺服器 =========
 const PORT = process.env.PORT || 3000;
