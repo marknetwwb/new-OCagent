@@ -20,11 +20,10 @@ app.post("/webhook", async (req, res) => {
   const userText = message.text;
 
   try {
-    // 呼叫 OpenRouter API（GLM-4-Air）
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "glm-4-air",
+        model: "z-ai/glm-4.5-air:free",
         messages: [
           { role: "user", content: userText }
         ]
@@ -37,17 +36,16 @@ app.post("/webhook", async (req, res) => {
       }
     );
 
-    // 正確取得 LLM 回覆
+    // ⭐ 正確取得 LLM 回覆
     const reply = response.data.choices[0].message.content;
 
-    // 回覆 Telegram
     await axios.post(`${TELEGRAM_API}/sendMessage`, {
       chat_id: chatId,
       text: reply
     });
 
   } catch (err) {
-    console.error("Error:", err.message);
+    console.error("LLM Error:", err.response?.data || err.message);
 
     // 即使錯誤，也要回覆 Telegram，避免 webhook 卡住
     try {
@@ -60,9 +58,10 @@ app.post("/webhook", async (req, res) => {
     }
   }
 
-  // **最重要：一定要回應 Telegram**
+  // ⭐ 最重要：一定要回應 Telegram
   res.sendStatus(200);
 });
+
 
 // Railway 會注入 PORT
 const PORT = process.env.PORT || 3000;
