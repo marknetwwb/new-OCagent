@@ -294,6 +294,63 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
+
+  //Open filename command
+  // 讀取檔案內容（支援 /data 舊檔案 + /data/files 新檔案）
+if (userText.startsWith("/open ")) {
+  const filename = userText.replace("/open ", "").trim();
+
+  try {
+    let fileBuf = null;
+
+    // 先找 /data/files
+    const fileInFiles = path.join("/data/files", filename);
+    if (fs.existsSync(fileInFiles)) {
+      fileBuf = fs.readFileSync(fileInFiles, "utf8");
+    }
+
+    // 再找 /data 根目錄
+    const fileInRoot = path.join("/data", filename);
+    if (!fileBuf && fs.existsSync(fileInRoot)) {
+      fileBuf = fs.readFileSync(fileInRoot, "utf8");
+    }
+
+    if (!fileBuf) {
+      await axios.post(`${TELEGRAM_API}/sendMessage`, {
+        chat_id: chatId,
+        text: `找不到檔案：${filename}`
+      });
+      return res.sendStatus(200);
+    }
+
+    // Telegram 訊息長度限制：4096 字
+    const MAX_LEN = 3800;
+    let text = fileBuf.toString();
+
+    if (text.length > MAX_LEN) {
+      text = text.slice(0, MAX_LEN) + "\n\n（內容過長，已截斷）";
+    }
+
+    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+      chat_id: chatId,
+      text: `📄 *${filename}*\n\n${text}`,
+      parse_mode: "Markdown"
+    });
+
+  } catch (err) {
+    console.error("OPEN FILE ERROR:", err.message);
+
+    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+      chat_id: chatId,
+      text: "讀取檔案時發生錯誤。"
+    });
+  }
+
+  return res.sendStatus(200);
+}
+
+  
+
   if (userText === "/tasks") {
     const list = listTasks(chatId)
       .map(t => `${t.done ? "✔" : "⬜"} ${t.text}`)
