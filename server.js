@@ -409,6 +409,33 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
+//Files scanner
+import fs from "fs";
+import path from "path";
+
+app.get("/scan", (req, res) => {
+  const base = "/data";
+  const result = {};
+
+  function walk(dir) {
+    const files = fs.readdirSync(dir);
+    for (const f of files) {
+      const full = path.join(dir, f);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        walk(full);
+      } else {
+        result[full] = stat.size + " bytes";
+      }
+    }
+  }
+
+  walk(base);
+  res.json(result);
+});
+
+
+
 // ========= 12. 啟動伺服器 =========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
