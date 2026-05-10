@@ -75,6 +75,13 @@ async function plannerAgent(userText) {
 使用者需求：${userText}
 `;
 
+//THINKING react
+  // 顯示「正在思考」
+await axios.post(`${TELEGRAM_API}/sendChatAction`, {
+  chat_id: chatId,
+  action: "typing"
+});
+  
   const response = await axios.post(
     "https://openrouter.ai/api/v1/chat/completions",
     {
