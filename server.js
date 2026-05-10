@@ -424,4 +424,28 @@ app.post("/webhook", async (req, res) => {
     const reply = response.data.choices[0].message.content;
 
     addMessage(chatId, "user", userText);
-    addMessage(chatId, "assistant",
+        addMessage(chatId, "assistant", reply);
+
+    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+      chat_id: chatId,
+      text: reply
+    });
+
+  } catch (err) {
+    typing = false;
+    console.error("LLM Error:", err.response?.data || err.message);
+
+    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+      chat_id: chatId,
+      text: "抱歉，我無法處理你的訊息。"
+    });
+  }
+
+  return res.sendStatus(200);
+});  // ← 關閉 webhook handler
+
+// ========= 12. 啟動伺服器 =========
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Bot server running on port", PORT);
+});
