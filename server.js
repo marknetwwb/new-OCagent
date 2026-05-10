@@ -398,44 +398,63 @@ if (userText.startsWith("/open ")) {
     return res.sendStatus(200);
   }
 
-  // ====== 一般聊天 ======
-  const history = memory[chatId] || [];
-  const messages = [...history, { role: "user", content: userText }];
+ // ====== 一般聊天 ======
+const history = memory[chatId] || [];
+const messages = [...history, { role: "user", content: userText }];
 
-  try {
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: "z-ai/glm-4.5-air:free",
-        messages
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_KEY}`,
-          "Content-Type": "application/json"
-        }
+try {
+  // 啟動 ChatGPT-style typing loop
+  let typing = true;
+
+  const typingLoop = setInterval(() => {
+    if (!typing) return;
+    axios.post(`${TELEGRAM_API}/sendChatAction`, {
+      chat_id: chatId,
+      action: "typing"
+    }).catch(() => {});
+  }, 1000); // 每秒送一次 typing
+
+  // ====== LLM 呼叫 ======
+  const response = await axios.post(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      model: "z-ai/glm-4.5-air:free",
+      messages
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_KEY}`,
+        "Content-Type": "application/json"
       }
-    );
+    }
+  );
 
-    const reply = response.data.choices[0].message.content;
+  // 停止 typing loop
+  typing = false;
+  clearInterval(typingLoop);
 
-    addMessage(chatId, "user", userText);
-    addMessage(chatId, "assistant", reply);
+  const reply = response.data.choices[0].message.content;
 
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: reply
-    });
-  } catch (err) {
-    console.error("LLM Error:", err.response?.data || err.message);
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: "抱歉，我無法處理你的訊息。"
-    });
-  }
+  addMessage(chatId, "user", userText);
+  addMessage(chatId, "assistant", reply);
 
-  res.sendStatus(200);
-});
+  await axios.post(`${TELEGRAM_API}/sendMessage`, {
+    chat_id: chatId,
+    text: reply
+  });
+
+} catch (err) {
+  typing = false;
+  console.error("LLM Error:", err.response?.data || err.message);
+
+  await axios.post(`${TELEGRAM_API}/sendMessage`, {
+    chat_id: chatId,
+    text: "抱歉，我無法處理你的訊息。"
+  });
+}
+
+return res.sendStatus(200);
+
 
 // ========= 12. 啟動伺服器 =========
 const PORT = process.env.PORT || 3000;
